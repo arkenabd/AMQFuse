@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<beans xmlns="http://www.springframework.org/schema/beans"
+    xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance" xsi:schemaLocation="        http://www.springframework.org/schema/beans https://www.springframework.org/schema/beans/spring-beans.xsd        http://camel.apache.org/schema/spring       https://camel.apache.org/schema/spring/camel-spring.xsd">
+    <bean class="org.apache.activemq.ActiveMQConnectionFactory" id="jmsConnectionFactory">
+        <property name="brokerURL" value="tcp://localhost:61616"/>
+        <property name="userName" value="admin"/>
+        <property name="password" value="admin"/>
+    </bean>
+    <bean class="org.apache.camel.component.jms.JmsConfiguration" id="jmsConfig">
+        <property name="connectionFactory" ref="jmsConnectionFactory"/>
+        <property name="transacted" value="false"/>
+        <property name="concurrentConsumers" value="10"/>
+    </bean>
+    <bean class="org.apache.activemq.camel.component.ActiveMQComponent" id="activemq">
+        <property name="configuration" ref="jmsConfig"/>
+    </bean>
+    <bean class="org.mycompany.GenerateCounter" id="generateCounter" scope="singleton"/>
+    <bean class="org.mycompany.GetAmqData" id="getAmqData" scope="singleton"/>
+    <bean class="org.mycompany.KillRoute" id="killRoute" scope="singleton"/>
+    <camelContext id="camelContext-c82d664f-a740-45c8-8af2-cfcc3c5878cf" xmlns="http://camel.apache.org/schema/spring">
+        <restConfiguration bindingMode="off" component="restlet"
+            contextPath="/amq" host="localhost" port="9999"/>
+        <rest id="rest-e90e26dc-d6f0-4ccb-a379-a55ef9cfa59e">
+            <post id="00b47764-ccd9-488e-810d-bf3aa5586bd7" uri="/store">
+                <to uri="direct:amq"/>
+            </post>
+            <get id="9d1dc72f-3bfe-445e-80a9-3061b36e0ee0" uri="/lookup/queue/{id}">
+                <to uri="direct:lookupdata"/>
+            </get>
+        </rest>
+        <!-- <route id="_send_data_to_amq"> <from id="_from1" uri="timer://foo?timer=5000" 
+			/> <setBody id="_setBody1"> <simple>Hello Arken</simple> </setBody> <log 
+			id="_log1" message="Send to AMQ" /> <to id="_to2" uri="activemq:queue:exampleQueue" 
+			/> </route> -->
+        <route id="_send_data_to_amq">
+            <from id="_from1" uri="direct:amq"/>
+            <process id="_Init_Strategy_co" ref="killRoute"/>
+            <to id="_to3" uri="direct:getcounter"/>
+            <log id="_log3" message="Set counter ${exchangeProperty[counter]} as JMSCorrelationID"/>
+            <setHeader headerName="JMSCorrelationID" id="_JMSCorrelationID">
+                <simple>${exchangeProperty[counter]}</simple>
+            </setHeader>
+            <setBody id="_body_to_AMQ">
+                <simple>This is AMQ data with correlation ID ${in.header.JMSCorrelationID}</simple>
+            </setBody>
+            <log id="_log1" message="Send data ${body} with JMSCorrelationID ${in.header.JMSCorrelationID} to AMQ"/>
+            <to id="_to2" pattern="InOnly" uri="activemq:queue:exampleQueue?asyncConsumer=true"/>
+            <!-- <to id="_to5" uri="jms:queue:ABC?asyncConsumer=true&amp;exchangePattern=InOnly&amp;includeSentJMSMessageID=true"/> -->
+            <log id="_log4" message="Message sent successfully"/>
+            <log id="_log5" message="Response JMSCorrelationID : ${in.header.JMSCorrelationID}"/>
+            <log id="_log6" message="Response Message Body : ${in.body}"/>
+            <to id="_to22" uri="mock:result"/>
+        </route>
+        <route id="_lookup_amq">
+            <from id="_from3" uri="direct:lookupdata"/>
+            <log id="_log2" message="Get message from Amq: ${body}"/>
+            <bean id="_bean2" ref="getAmqData"/>
+        </route>
+        <!-- <route id="_direct_read_amq"> <from id="_from2" uri="activemq:queue:exampleQueue" 
+			/> <log id="_log3" message="Get data from AMQ : ${body}" /> </route> -->
+        <route id="_route1">
+            <from id="_from2" uri="seda:name"/>
+            <to id="_to1" uri="mock:result"/>
+        </route>
+        <route id="_Get_Counter">
+            <from id="_from4" uri="direct:getcounter"/>
+            <bean id="_bean1" method="getCounter('check')" ref="generateCounter"/>
+        </route>
+    </camelContext>
+</beans>
